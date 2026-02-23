@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: refracpo
+Version: 0.1.0
+Summary: Physical optics analysis toolkit for refractive optical systems
+Author: Your Name
+License: MIT
+Requires-Python: >=3.0
+Description-Content-Type: text/markdown
+Requires-Dist: numpy
+Provides-Extra: docs
+Requires-Dist: mkdocs; extra == "docs"
+Requires-Dist: mkdocs-material; extra == "docs"
+Requires-Dist: mkdocstrings[python]; extra == "docs"
+
+"# RefracPO" 

@@ -1,0 +1,6 @@
+numpy
+
+[docs]
+mkdocs
+mkdocs-material
+mkdocstrings[python]
