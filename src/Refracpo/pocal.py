@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 from .vecops import dot, cross, Vector as vector
 from . import c, mu, epsilon, Z0
-from ....po_core_gpu import po_integrate_surface_currents_gpu
+from po_core_gpu import po_integrate_surface_currents_gpu
 
 
 def PO_cpu(src, src_n, src_ds, # geometry of source surface
