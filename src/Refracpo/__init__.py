@@ -14,8 +14,15 @@ from __future__ import annotations
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version as _version
 from typing import Any
+import numpy as np
 
-__all__ = ["__version__", "coordinate"]
+# Physical Constants
+c = 299792458  # speed of light in m/s
+mu = 4 * np.pi * 10**(-7)  # permeability in H/m
+epsilon = 8.854187817 * 10**(-12)  # permittivity in F/m
+Z0 = np.sqrt(mu / epsilon, dtype=np.float64)  # impedance of free space in Ohm
+
+__all__ = ["__version__", "coordinate", "c", "mu", "epsilon", "Z0"]
 
 try:
     __version__ = _version("refracpo")
