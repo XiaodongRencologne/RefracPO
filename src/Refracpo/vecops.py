@@ -430,7 +430,25 @@ class Vector:
         if device is not None:
             self._data = self._data.to(device=device)
         return self
-
+    def to_coordsys(self,matrix=None):
+        """Transform vector components to a new coordinate system using a transformation matrix.
+        
+        Applies the transformation: [x', y', z'] = matrix @ [x, y, z] for each position.
+        If matrix is None, leaves components unchanged.
+        
+        Args:
+            matrix: 3x3 array/tensor representing the coordinate transformation.
+                    Should be compatible with current backend (NumPy or PyTorch).
+                    If None, no transformation is applied.
+        """
+        if matrix is None:
+            return
+        if self._is_tensor:
+            data = T.matmul(matrix, self._data)
+            self._data = data
+        else:
+            data = np.matmul(matrix, self._data)
+            self._data = data
     def as_array(self):
         """Return internal data array/tensor directly.
         
@@ -549,6 +567,39 @@ class Vector:
             >>> v2 = 2 * v  # Same as v * 2
         """
         return self.__mul__(scalar)
+    
+    def conj(self):
+        """Return complex conjugate of vector components (backend-preserving)."""
+        result = Vector()
+        if self._is_tensor:
+            result._data = T.conj(self._data)
+            result._is_tensor = True
+        else:
+            result._data = np.conjugate(self._data)
+            result._is_tensor = False
+        return result
+    
+    def real(self):
+        """Return real part of vector components (backend-preserving)."""
+        result = Vector()
+        if self._is_tensor:
+            result._data = T.real(self._data)
+            result._is_tensor = True
+        else:
+            result._data = np.real(self._data)
+            result._is_tensor = False
+        return result
+    
+    def imag(self):
+        """Return imaginary part of vector components (backend-preserving)."""
+        result = Vector()
+        if self._is_tensor:
+            result._data = T.imag(self._data)
+            result._is_tensor = True
+        else:
+            result._data = np.imag(self._data)
+            result._is_tensor = False
+        return result
 
 
 # --- Vector Operations Functions ---

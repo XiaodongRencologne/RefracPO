@@ -25,7 +25,7 @@ Notes:
 
 import torch as T
 import numpy as np
-from .RefracPO.src.Refracpo import c, mu, epsilon, Z0
+from . import c, mu, epsilon, Z0
 
 
 def _estimate_required_memory(N_obs, N_src, device, complex_fields=False):
@@ -199,16 +199,6 @@ def _process_batch_gpu(r_src, r_obs_batch, N, ds, Je, Jm, k, Z0_tensor, device):
     weight = ds.unsqueeze(0).unsqueeze(0)  # (1, 1, N_src)
     
     # ===== ELECTRIC FIELD COMPUTATION =====
-    
-    # E-field from Je
-    Je_dot_R = T.sum(Je.unsqueeze(1) * R_normalized, dim=0)
-    
-    ee1 = Je.unsqueeze(1) * (1j/kr - kr2_inv + 1j*kr3_inv)
-    ee2 = R_normalized * (Je_dot_R * (-1j/kr + 3*kr2_inv - 3j*kr3_inv)).unsqueeze(0)
-    
-    ee = green_func.unsqueeze(0) * k**2 * (ee1 + ee2)
-    Ee = T.sum(ee * weight, dim=2)
-    
     # E-field from Jm (cross coupling)
     he_factor = R_normalized * kr2_inv * (1.0 - 1j*kr)
     em = T.cross(Jm.unsqueeze(1).expand(-1, N_obs_batch, -1), 
@@ -226,19 +216,41 @@ def _process_batch_gpu(r_src, r_obs_batch, N, ds, Je, Jm, k, Z0_tensor, device):
     he_weighted = he * green_func.unsqueeze(0) * k**2 * weight
     He = T.sum(he_weighted, dim=2)
     
-    # H-field from Jm
-    Jm_dot_R = T.sum(Jm.unsqueeze(1) * R_normalized, dim=0)
-    
-    hm1 = Jm.unsqueeze(1) * (1j/kr - kr2_inv + 1j*kr3_inv)
-    hm2 = R_normalized * (Jm_dot_R * (-1j/kr + 3*kr2_inv - 3j*kr3_inv)).unsqueeze(0)
-    
-    hm = green_func.unsqueeze(0) * k**2 * (hm1 + hm2)
-    Hm = T.sum(hm * weight, dim=2)
-    
     # Combine contributions with proper scaling
-    Field_E_batch = Z0_tensor / (4 * np.pi) * Ee - 1.0 / (4 * np.pi) * Em
-    Field_H_batch = 1.0 / (4 * np.pi) * He + 1.0 / (4 * np.pi * Z0_tensor) * Hm
+    Field_E_batch = - 1.0 / (4 * np.pi) * Em
+    Field_H_batch = 1.0 / (4 * np.pi) * He
     
+    return Field_E_batch, Field_H_batch
+
+
+def _process_FFcal_batch_gpu(r_src, r_obs_batch, Je, Jm, k, Z0_tensor, device):
+    """
+    Process one far-field batch using plane-wave phase accumulation.
+
+    Parameters:
+        r_src: Source coordinates, shape (3, N_src)
+        r_obs_batch: Observation batch coordinates, shape (3, N_obs_batch)
+        Je: Electric equivalent current, shape (3, N_src)
+        Jm: Magnetic equivalent current, shape (3, N_src)
+        k: Wave number
+        Z0_tensor: Free-space impedance tensor/scalar
+        device: torch.device
+
+    Returns:
+        (Field_E_batch, Field_H_batch), each shape (3, N_obs_batch)
+    """
+
+    # phase_arg[n_obs, n_src] = r_obs[:, n_obs] · r_src[:, n_src]
+    phase_arg = T.matmul(r_obs_batch.transpose(0, 1), r_src)
+    phase = T.exp(1j * k * phase_arg)  # (N_obs_batch, N_src)
+
+    ee = T.matmul(Jm, phase.transpose(0, 1))  # (3, N_obs_batch)
+    he = T.matmul(Je, phase.transpose(0, 1))  # (3, N_obs_batch)
+
+    r_vec = r_obs_batch.to(dtype=T.complex128)
+    Field_E_batch = 1j * T.cross(r_vec, ee, dim=0)
+    Field_H_batch = -1j / Z0_tensor * T.cross(r_vec, he, dim=0)
+
     return Field_E_batch, Field_H_batch
 
 
@@ -388,7 +400,8 @@ def po_integrate_surface_currents_je_gpu(r_src, r_obs, N, ds, Je, k, Z0_val=None
 
 
 def po_integrate_surface_currents_gpu(r_src, r_obs, ds, 
-                                      Je, Jm, k, 
+                                      Je, Jm, k,
+                                      far_field=False, 
                                       Z0_val=None, device=None,
                                        max_batch_size=None, memory_fraction=0.8):
     """
@@ -487,11 +500,15 @@ def po_integrate_surface_currents_gpu(r_src, r_obs, ds,
             memory_fraction=memory_fraction,
             min_batch=1
         )
+    if far_field:
+        method = _process_FFcal_batch_gpu
+    else:
+        method = _process_batch_gpu
     
     # If batch size is larger than N_obs, process all at once
     if max_batch_size >= N_obs:
         # Process all observation points at once
-        return _process_batch_gpu(r_src, r_obs, ds, Je, Jm, k, Z0_tensor, device)
+        return method(r_src, r_obs, ds, Je, Jm, k, Z0_tensor, device)
     
     # Otherwise, process in batches
     Field_E = T.zeros((3, N_obs), dtype=T.complex128, device=device)
@@ -507,7 +524,7 @@ def po_integrate_surface_currents_gpu(r_src, r_obs, ds,
         r_obs_batch = r_obs[:, start_idx:end_idx]
         
         # Process batch
-        Field_E_batch, Field_H_batch = _process_batch_gpu(
+        Field_E_batch, Field_H_batch = method(
             r_src, r_obs_batch, ds, Je, Jm, k, Z0_tensor, device
         )
         
@@ -520,3 +537,4 @@ def po_integrate_surface_currents_gpu(r_src, r_obs, ds,
             T.cuda.empty_cache()
     
     return Field_E, Field_H
+
